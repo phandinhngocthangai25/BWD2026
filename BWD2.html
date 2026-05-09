@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HelpMap Pro - Kết nối thiện nguyện thông minh</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Leaflet Routing Machine -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <style>
+        #map { height: calc(100vh - 64px); width: 100%; }
+        .custom-marker { display: flex; justify-content: center; align-items: center; cursor: pointer; }
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .chat-sidebar {
+            transition: transform 0.3s ease;
+            transform: translateX(0);
+        }
+        .chat-sidebar.closed {
+            transform: translateX(100%);
+        }
+        .message-bubble {
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        .auth-modal {
+            transition: all 0.3s ease;
+        }
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 overflow-hidden">
+
+<!-- Header -->
+<nav class="h-16 bg-gradient-to-r from-red-600 to-red-700 shadow-lg flex items-center justify-between px-6 z-[1000] relative">
+    <div class="flex items-center gap-3">
+        <div class="bg-white p-2 rounded-lg">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+        </div>
+        <h1 class="text-2xl font-bold text-white tracking-tight">HelpMap <span class="text-sm font-normal">Pro</span></h1>
+    </div>
+    <div class="hidden md:block text-white/90 text-sm italic">
+        🤝 "Kết nối yêu thương - Hành động ngay hôm nay"
+    </div>
+    <div class="flex gap-3 items-center">
+        <div id="user-info" class="hidden">
+            <div class="flex items-center gap-3">
+                <span id="user-name-display" class="text-white text-sm font-medium"></span>
+                <div id="user-avatar" class="user-avatar"></div>
+            </div>
+            <div id="user-dropdown" class="hidden absolute right-4 top-14 mt-2 w-48 bg-white rounded-lg shadow-xl z-[2000]">
+                <div class="p-3 border-b">
+                    <p id="dropdown-user-name" class="font-semibold"></p>
+                    <p id="dropdown-user-email" class="text-xs text-gray-500"></p>
+                </div>
+                <button onclick="logout()" class="w-full text-left px-4 py-2 hover:bg-gray-100 text-red-600">🚪 Đăng xuất</button>
+            </div>
+        </div>
+        <button id="login-btn" onclick="showAuthModal()" class="text-white hover:bg-white/20 px-4 py-2 rounded-lg transition font-medium">
+            🔑 Đăng nhập
+        </button>
+        <button onclick="openStats()" class="text-white hover:bg-white/20 px-3 py-1 rounded-lg transition">📊 Thống kê</button>
+        <button onclick="toggleAbout()" class="text-white hover:bg-white/20 px-3 py-1 rounded-lg transition">ℹ️ Giới thiệu</button>
+    </div>
+</nav>
+
+<main class="relative">
+    <!-- Sidebar Controls - Chỉ hiện khi đã đăng nhập -->
+    <div id="sidebar-controls" class="absolute top-4 left-4 z-[1000] flex flex-col gap-3 w-72 hidden">
+        <div class="bg-white/95 backdrop-blur-sm p-4 rounded-xl shadow-xl border border-gray-200">
+            <p class="text-xs font-bold text-gray-500 mb-3 uppercase tracking-wider">📢 Bạn muốn gì?</p>
+            <div class="flex flex-col gap-2">
+                <button onclick="addCurrentLocation('need')" class="flex items-center gap-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white px-4 py-2.5 rounded-lg transition shadow-md font-medium">
+                    <span class="w-3 h-3 bg-white rounded-full animate-pulse"></span> 🆘 Tôi cần hỗ trợ
+                </button>
+                <button onclick="addCurrentLocation('helping')" class="flex items-center gap-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-4 py-2.5 rounded-lg transition shadow-md font-medium">
+                    <span class="w-3 h-3 bg-white rounded-full"></span> ✅ Tôi đang hỗ trợ
+                </button>
+                <button onclick="addCurrentLocation('want')" class="flex items-center gap-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-4 py-2.5 rounded-lg transition shadow-md font-medium">
+                    <span class="w-3 h-3 bg-white rounded-full"></span> 🤝 Tôi muốn hỗ trợ
+                </button>
+            </div>
+        </div>
+
+        <div class="bg-white/95 backdrop-blur-sm p-3 rounded-xl shadow-xl border border-gray-200">
+            <p class="text-xs font-bold text-gray-500 mb-2">🔍 Lọc theo loại</p>
+            <div class="flex gap-2">
+                <button onclick="filterMarkers('all')" id="filter-all" class="flex-1 px-3 py-1.5 bg-gray-600 text-white rounded-lg text-sm hover:bg-gray-700 transition">Tất cả</button>
+                <button onclick="filterMarkers('need')" id="filter-need" class="flex-1 px-3 py-1.5 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600 transition">Cần giúp</button>
+                <button onclick="filterMarkers('helping')" id="filter-helping" class="flex-1 px-3 py-1.5 bg-green-500 text-white rounded-lg text-sm hover:bg-green-600 transition">Đang giúp</button>
+                <button onclick="filterMarkers('want')" id="filter-want" class="flex-1 px-3 py-1.5 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 transition">Muốn giúp</button>
+            </div>
+        </div>
+
+        <button onclick="findNearest()" class="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white px-4 py-3 rounded-xl shadow-xl transition flex items-center justify-center gap-2 font-bold uppercase text-sm tracking-wider">
+            🎯 Tìm người cần giúp gần nhất
+        </button>
+
+        <button onclick="showMyMarkers()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-xl shadow-lg transition text-sm">
+            📍 Bài đăng của tôi
+        </button>
+    </div>
+
+    <!-- Chat Sidebar -->
+    <div id="chat-sidebar" class="chat-sidebar fixed right-0 top-16 bottom-0 w-96 bg-white shadow-2xl z-[1000] flex flex-col transform translate-x-full">
+        <div class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-4 flex justify-between items-center">
+            <div>
+                <h3 class="font-bold text-lg">💬 Tin nhắn hỗ trợ</h3>
+                <p class="text-xs opacity-90" id="chat-target-name">Chưa chọn người</p>
+            </div>
+            <button onclick="closeChat()" class="hover:bg-white/20 rounded-lg p-1">✕</button>
+        </div>
+        <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
+            <div class="text-center text-gray-400 text-sm">Chọn một điểm trên bản đồ để bắt đầu chat</div>
+        </div>
+        <div class="p-4 border-t bg-white">
+            <div class="flex gap-2">
+                <input type="text" id="chat-input" placeholder="Nhập tin nhắn..." class="flex-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <button onclick="sendMessage()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition">Gửi</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bản đồ -->
+    <div id="map"></div>
+
+    <!-- Modal Đăng nhập / Đăng ký -->
+    <div id="auth-modal" class="hidden fixed inset-0 bg-black/50 z-[2000] flex items-center justify-center p-4 auth-modal">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl">
+            <div class="flex justify-between items-center mb-4">
+                <h2 id="auth-title" class="text-2xl font-bold">Đăng nhập</h2>
+                <button onclick="closeAuthModal()" class="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+
+            <!-- Tab chuyển đổi -->
+            <div class="flex gap-2 mb-6 border-b">
+                <button onclick="switchAuthTab('login')" id="tab-login" class="pb-2 px-4 text-gray-600 border-b-2 border-transparent hover:text-red-600 transition font-medium">Đăng nhập</button>
+                <button onclick="switchAuthTab('register')" id="tab-register" class="pb-2 px-4 text-gray-600 border-b-2 border-transparent hover:text-red-600 transition font-medium">Đăng ký</button>
+            </div>
+
+            <!-- Form đăng nhập -->
+            <div id="login-form">
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Email</label>
+                    <input type="email" id="login-email" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500" placeholder="example@email.com">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Mật khẩu</label>
+                    <input type="password" id="login-password" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500" placeholder="••••••••">
+                </div>
+                <button onclick="login()" class="w-full bg-gradient-to-r from-red-600 to-red-700 text-white py-2 rounded-lg hover:from-red-700 hover:to-red-800 transition font-semibold">
+                    Đăng nhập
+                </button>
+            </div>
+
+            <!-- Form đăng ký (ẩn mặc định) -->
+            <div id="register-form" class="hidden">
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Họ và tên</label>
+                    <input type="text" id="register-name" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500" placeholder="Nguyễn Văn A">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Email</label>
+                    <input type="email" id="register-email" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500" placeholder="example@email.com">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Số điện thoại</label>
+                    <input type="tel" id="register-phone" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500" placeholder="0123456789">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Mật khẩu</label>
+                    <input type="password" id="register-password" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500" placeholder="••••••••">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Xác nhận mật khẩu</label>
+                    <input type="password" id="register-confirm" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500" placeholder="••••••••">
+                </div>
+                <button onclick="register()" class="w-full bg-gradient-to-r from-green-500 to-green-600 text-white py-2 rounded-lg hover:from-green-600 hover:to-green-700 transition font-semibold">
+                    Đăng ký
+                </button>
+            </div>
+
+            <p class="text-center text-gray-500 text-xs mt-4">
+                Bằng cách đăng nhập, bạn đồng ý với <a href="#" class="text-red-500">Điều khoản sử dụng</a>
+            </p>
+        </div>
+    </div>
+
+    <!-- Modal thống kê -->
+    <div id="stats-modal" class="hidden fixed inset-0 bg-black/50 z-[2000] flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl">
+            <h2 class="text-2xl font-bold mb-4">📊 Thống kê HelpMap</h2>
+            <div id="stats-content" class="space-y-3">
+                <p>Đang tải...</p>
+            </div>
+            <button onclick="closeStats()" class="w-full bg-gray-800 text-white py-2 rounded-lg mt-4">Đóng</button>
+        </div>
+    </div>
+
+    <!-- Modal giới thiệu -->
+    <div id="about-modal" class="hidden fixed inset-0 bg-black/50 z-[2000] flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl">
+            <h2 class="text-2xl font-bold mb-4">🌟 Về HelpMap Pro</h2>
+            <p class="text-gray-600 mb-3">Nền tảng kết nối cộng đồng thiện nguyện thông minh, giúp người khó khăn tìm thấy sự giúp đỡ nhanh nhất.</p>
+            <p class="text-gray-600 mb-3"><strong>Tính năng nâng cao:</strong></p>
+            <ul class="list-disc list-inside text-gray-600 mb-4 space-y-1">
+                <li>✓ Đăng nhập/Đăng ký tài khoản</li>
+                <li>✓ Lưu trữ dữ liệu cá nhân</li>
+                <li>✓ Chat realtime giữa các điểm</li>
+                <li>✓ Lọc marker theo loại</li>
+                <li>✓ Thông báo khẩn cấp</li>
+                <li>✓ Thống kê trực quan</li>
+            </ul>
+            <button onclick="toggleAbout()" class="w-full bg-gradient-to-r from-red-600 to-red-700 text-white py-2 rounded-lg">Đóng</button>
+        </div>
+    </div>
+</main>
+
+<script>
+    // ========== KHỞI TẠO BẢN ĐỒ ==========
+    const map = L.map('map').setView([10.762622, 106.660172], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    let userLocation = null;
+    let markers = [];
+    let routingControl = null;
+    let currentFilter = 'all';
+    let currentChatMarker = null;
+    let currentUser = null;
+
+    // Storage keys
+    const STORAGE_KEY = 'helpmap_markers';
+    const CHAT_KEY = 'helpmap_chats';
+    const USER_KEY = 'helpmap_users';
+    const SESSION_KEY = 'helpmap_session';
+
+    // ========== HỆ THỐNG ĐĂNG NHẬP/ĐĂNG KÝ ==========
+    function initAuth() {
+        // Kiểm tra session
+        const savedSession = localStorage.getItem(SESSION_KEY);
+        if (savedSession) {
+            const session = JSON.parse(savedSession);
+            const users = JSON.parse(localStorage.getItem(USER_KEY) || '[]');
+            const user = users.find(u => u.email === session.email);
+            if (user && session.expiry > Date.now()) {
+                currentUser = user;
+                updateUIForLoggedInUser();
+            } else {
+                localStorage.removeItem(SESSION_KEY);
+            }
+        }
+    }
+
+    function showAuthModal() {
+        document.getElementById('auth-modal').classList.remove('hidden');
+        switchAuthTab('login');
+    }
+
+    function closeAuthModal() {
+        document.getElementById('auth-modal').classList.add('hidden');
+        document.getElementById('login-email').value = '';
+        document.getElementById('login-password').value = '';
+        document.getElementById('register-name').value = '';
+        document.getElementById('register-email').value = '';
+        document.getElementById('register-phone').value = '';
+        document.getElementById('register-password').value = '';
+        document.getElementById('register-confirm').value = '';
+    }
+
+    function switchAuthTab(tab) {
+        const loginForm = document.getElementById('login-form');
+        const registerForm = document.getElementById('register-form');
+        const tabLogin = document.getElementById('tab-login');
+        const tabRegister = document.getElementById('tab-register');
+        const authTitle = document.getElementById('auth-title');
+
+        if (tab === 'login') {
+            loginForm.classList.remove('hidden');
+            registerForm.classList.add('hidden');
+            tabLogin.classList.add('border-red-500', 'text-red-600');
+            tabLogin.classList.remove('border-transparent', 'text-gray-600');
+            tabRegister.classList.remove('border-red-500', 'text-red-600');
+            tabRegister.classList.add('border-transparent', 'text-gray-600');
+            authTitle.innerText = 'Đăng nhập';
+        } else {
+            loginForm.classList.add('hidden');
+            registerForm.classList.remove('hidden');
+            tabRegister.classList.add('border-red-500', 'text-red-600');
+            tabRegister.classList.remove('border-transparent', 'text-gray-600');
+            tabLogin.classList.remove('border-red-500', 'text-red-600');
+            tabLogin.classList.add('border-transparent', 'text-gray-600');
+            authTitle.innerText = 'Đăng ký';
+        }
+    }
+
+    function register() {
+        const name = document.getElementById('register-name').value.trim();
+        const email = document.getElementById('register-email').value.trim();
+        const phone = document.getElementById('register-phone').value.trim();
+        const password = document.getElementById('register-password').value;
+        const confirm = document.getElementById('register-confirm').value;
+
+        if (!name || !email || !phone || !password) {
+            Swal.fire('Lỗi', 'Vui lòng điền đầy đủ thông tin', 'error');
+            return;
+        }
+
+        if (password !== confirm) {
+            Swal.fire('Lỗi', 'Mật khẩu xác nhận không khớp', 'error');
+            return;
+        }
+
+        if (password.length < 6) {
+            Swal.fire('Lỗi', 'Mật khẩu phải có ít nhất 6 ký tự', 'error');
+            return;
+        }
+
+        const users = JSON.parse(localStorage.getItem(USER_KEY) || '[]');
+        if (users.find(u => u.email === email)) {
+            Swal.fire('Lỗi', 'Email đã được đăng ký', 'error');
+            return;
+        }
+
+        const newUser = {
+            id: Date.now(),
+            name: name,
+            email: email,
+            phone: phone,
+            password: password,
+            createdAt: Date.now(),
+            myMarkers: []
+        };
+
+        users.push(newUser);
+        localStorage.setItem(USER_KEY, JSON.stringify(users));
+
+        Swal.fire('Thành công!', 'Đăng ký tài khoản thành công. Vui lòng đăng nhập.', 'success');
+        switchAuthTab('login');
+    }
+
+    function login() {
+        const email = document.getElementById('login-email').value.trim();
+        const password = document.getElementById('login-password').value;
+
+        if (!email || !password) {
+            Swal.fire('Lỗi', 'Vui lòng nhập email và mật khẩu', 'error');
+            return;
+        }
+
+        const users = JSON.parse(localStorage.getItem(USER_KEY) || '[]');
+        const user = users.find(u => u.email === email && u.password === password);
+
+        if (!user) {
+            Swal.fire('Lỗi', 'Email hoặc mật khẩu không đúng', 'error');
+            return;
+        }
+
+        currentUser = user;
+
+        // Lưu session (24h)
+        const session = {
+            email: user.email,
+            expiry: Date.now() + 24 * 60 * 60 * 1000
+        };
+        localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+
+        updateUIForLoggedInUser();
+        closeAuthModal();
+
+        Swal.fire({
+            title: 'Chào mừng trở lại!',
+            text: `Xin chào ${user.name}`,
+            icon: 'success',
+            timer: 2000,
+            showConfirmButton: false
+        });
+    }
+
+    function logout() {
+        Swal.fire({
+            title: 'Đăng xuất?',
+            text: 'Bạn có chắc muốn đăng xuất không?',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Đăng xuất',
+            cancelButtonText: 'Hủy'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                localStorage.removeItem(SESSION_KEY);
+                currentUser = null;
+                updateUIForLoggedOutUser();
+                Swal.fire('Đã đăng xuất', 'Hẹn gặp lại bạn!', 'success');
+            }
+        });
+    }
+
+    function updateUIForLoggedInUser() {
+        document.getElementById('login-btn').classList.add('hidden');
+        document.getElementById('user-info').classList.remove('hidden');
+        document.getElementById('sidebar-controls').classList.remove('hidden');
+
+        document.getElementById('user-name-display').innerText = currentUser.name.split(' ').pop();
+        document.getElementById('dropdown-user-name').innerText = currentUser.name;
+        document.getElementById('dropdown-user-email').innerText = currentUser.email;
+
+        const avatar = document.getElementById('user-avatar');
+        avatar.innerText = currentUser.name.charAt(0).toUpperCase();
+
+        // Thêm sự kiện cho avatar
+        avatar.onclick = () => {
+            const dropdown = document.getElementById('user-dropdown');
+            dropdown.classList.toggle('hidden');
+        };
+
+        // Đóng dropdown khi click ra ngoài
+        document.addEventListener('click', function(e) {
+            if (!avatar.contains(e.target)) {
+                document.getElementById('user-dropdown').classList.add('hidden');
+            }
+        });
+
+        // Load lại dữ liệu cho user
+        loadMarkersFromStorage();
+    }
+
+    function updateUIForLoggedOutUser() {
+        document.getElementById('login-btn').classList.remove('hidden');
+        document.getElementById('user-info').classList.add('hidden');
+        document.getElementById('sidebar-controls').classList.add('hidden');
+        document.getElementById('user-dropdown').classList.add('hidden');
+
+        // Xóa tất cả marker khỏi bản đồ (chỉ hiện khi đăng nhập)
+        markers.forEach(m => map.removeLayer(m));
+        markers = [];
+    }
+
+    // ========== LOAD DATA TỪ LOCALSTORAGE ==========
+    function loadMarkersFromStorage() {
+        // Xóa marker cũ
+        markers.forEach(m => map.removeLayer(m));
+        markers = [];
+
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            const markersData = JSON.parse(saved);
+            markersData.forEach(data => {
+                addMarkerFromData(data);
+            });
+        }
+
+        // Nếu không có dữ liệu, tạo mẫu (chỉ cho user đã đăng nhập)
+        if (markers.length === 0 && currentUser) {
+            generateSampleData();
+        }
+    }
+
+    function saveMarkersToStorage() {
+        const markersData = markers.map(m => ({
+            lat: m.getLatLng().lat,
+            lng: m.getLatLng().lng,
+            type: m.options.type,
+            description: m.options.description,
+            name: m.options.name,
+            timestamp: m.options.timestamp,
+            id: m.options.id,
+            userId: m.options.userId
+        }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(markersData));
+    }
+
+    function addMarkerFromData(data) {
+        let iconHtml;
+        const isPulse = data.type === 'need';
+        let label;
+
+        if (data.type === 'need') {
+            label = '🆘 Cần hỗ trợ';
+            iconHtml = `<div class="pulse w-7 h-7 bg-red-500 border-2 border-white rounded-full shadow-lg"></div>`;
+        } else if (data.type === 'helping') {
+            label = '✅ Đang hỗ trợ';
+            iconHtml = `<div class="w-7 h-7 bg-green-500 border-2 border-white rounded-full shadow-lg"></div>`;
+        } else {
+            label = '🤝 Muốn hỗ trợ';
+            iconHtml = `<div class="w-7 h-7 bg-blue-500 border-2 border-white rounded-full shadow-lg"></div>`;
+        }
+
+        // Thêm badge "Của tôi" nếu là bài đăng của user hiện tại
+        const isMyPost = currentUser && data.userId === currentUser.id;
+        const myPostBadge = isMyPost ? '<span class="inline-block bg-yellow-500 text-white text-xs px-2 py-0.5 rounded mt-1">Bài của tôi</span>' : '';
+
+        const popupContent = `
+                <div class="min-w-[220px]">
+                    <b class="text-lg">${label}</b>
+                    ${myPostBadge}
+                    <p class="text-sm mt-1">📝 ${data.description || 'Không có mô tả'}</p>
+                    <p class="text-xs text-gray-500 mt-1">👤 ${data.name || 'Ẩn danh'}</p>
+                    <p class="text-xs text-gray-500">🕐 ${new Date(data.timestamp).toLocaleString()}</p>
+                    <div class="flex gap-2 mt-2">
+                        <button onclick="chatWithMarker('${data.id}')" class="bg-indigo-500 text-white px-2 py-1 rounded text-xs hover:bg-indigo-600">💬 Chat</button>
+                        ${(currentUser && (data.userId === currentUser.id || currentUser.email === 'admin@helpmap.com')) ?
+            `<button onclick="deleteMarker('${data.id}')" class="bg-red-500 text-white px-2 py-1 rounded text-xs hover:bg-red-600">🗑️ Xóa</button>` : ''}
+                        ${data.type === 'need' ?
+            `<button onclick="markAsHelped('${data.id}')" class="bg-green-500 text-white px-2 py-1 rounded text-xs hover:bg-green-600">✅ Đã giúp</button>` : ''}
+                    </div>
+                </div>
+            `;
+
+        const customIcon = L.divIcon({
+            html: iconHtml,
+            className: 'custom-marker',
+            iconSize: [28, 28],
+            popupAnchor: [0, -14]
+        });
+
+        const marker = L.marker([data.lat, data.lng], {
+            icon: customIcon,
+            type: data.type,
+            description: data.description,
+            name: data.name,
+            timestamp: data.timestamp,
+            id: data.id,
+            userId: data.userId
+        }).addTo(map).bindPopup(popupContent);
+
+        markers.push(marker);
+
+        // Áp dụng filter hiện tại
+        if (currentFilter !== 'all' && marker.options.type !== currentFilter) {
+            marker.remove();
+        }
+    }
+
+    // ========== THÊM MARKER MỚI ==========
+    function addCurrentLocation(type) {
+        if (!currentUser) {
+            Swal.fire('Yêu cầu đăng nhập', 'Vui lòng đăng nhập để đăng tin hỗ trợ', 'warning');
+            showAuthModal();
+            return;
+        }
+
+        if (!userLocation) {
+            Swal.fire('Lỗi', 'Vui lòng cho phép truy cập vị trí!', 'error');
+            return;
+        }
+
+        let label, placeholder;
+        if (type === 'need') {
+            label = '🆘 Cần hỗ trợ';
+            placeholder = 'Mô tả nhu cầu (VD: Cần lương thực, thuốc men...)';
+        } else if (type === 'helping') {
+            label = '✅ Đang hỗ trợ';
+            placeholder = 'Mô tả khả năng hỗ trợ (VD: Có xe chở hàng, thuốc...)';
+        } else {
+            label = '🤝 Muốn hỗ trợ';
+            placeholder = 'Mô tả bạn có thể giúp gì?';
+        }
+
+        Swal.fire({
+            title: label,
+            input: 'textarea',
+            inputPlaceholder: placeholder,
+            inputAttributes: {
+                'aria-label': placeholder
+            },
+            showCancelButton: true,
+            confirmButtonText: 'Đăng tin',
+            cancelButtonText: 'Hủy'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                const description = result.value || 'Không có mô tả';
+                const id = Date.now().toString();
+                const name = currentUser.name;
+
+                const offsetLat = (Math.random() - 0.5) * 0.002;
+                const offsetLng = (Math.random() - 0.5) * 0.002;
+
+                addMarkerFromData({
+                    lat: userLocation.lat + offsetLat,
+                    lng: userLocation.lng + offsetLng,
+                    type: type,
+                    description: description,
+                    name: name,
+                    timestamp: Date.now(),
+                    id: id,
+                    userId: currentUser.id
+                });
+
+                saveMarkersToStorage();
+
+                Swal.fire('Thành công!', 'Đã đăng vị trí lên bản đồ', 'success');
+
+                if (type === 'need') {
+                    Swal.fire({
+                        title: '🆘 Đã gửi tín hiệu cầu cứu!',
+                        text: 'Những người hỗ trợ gần bạn sẽ nhìn thấy',
+                        icon: 'warning',
+                        timer: 3000,
+                        showConfirmButton: false
+                    });
+                }
+            }
+        });
+    }
+
+    // ========== HIỂN THỊ BÀI ĐĂNG CỦA TÔI ==========
+    function showMyMarkers() {
+        if (!currentUser) return;
+
+        const myMarkers = markers.filter(m => m.options.userId === currentUser.id);
+        if (myMarkers.length === 0) {
+            Swal.fire('Thông báo', 'Bạn chưa có bài đăng nào', 'info');
+            return;
+        }
+
+        // Zoom đến bài đăng đầu tiên
+        if (myMarkers[0]) {
+            map.setView(myMarkers[0].getLatLng(), 15);
+            myMarkers[0].openPopup();
+        }
+
+        Swal.fire('Bài đăng của tôi', `Bạn có ${myMarkers.length} bài đang hoạt động`, 'success');
+    }
+
+    // ========== CÁC HÀM KHÁC GIỮ NGUYÊN ==========
+    function findNearest() {
+        if (!userLocation) {
+            Swal.fire('Lỗi', 'Chưa xác định được vị trí của bạn!', 'error');
+            return;
+        }
+
+        let nearest = null;
+        let minDistance = Infinity;
+
+        markers.forEach(marker => {
+            if (marker.options.type === 'need') {
+                const dist = map.distance(userLocation, marker.getLatLng());
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    nearest = marker;
+                }
+            }
+        });
+
+        if (nearest) {
+            if (routingControl) map.removeControl(routingControl);
+
+            routingControl = L.Routing.control({
+                waypoints: [
+                    L.latLng(userLocation.lat, userLocation.lng),
+                    L.latLng(nearest.getLatLng().lat, nearest.getLatLng().lng)
+                ],
+                lineOptions: { styles: [{ color: '#f59e0b', weight: 6 }] },
+                createMarker: function() { return null; }
+            }).addTo(map);
+
+            const distKm = (minDistance / 1000).toFixed(2);
+            Swal.fire({
+                title: '🎯 Đã tìm thấy!',
+                html: `Khoảng cách: <b>${distKm} km</b><br>Đã vẽ đường đi màu cam trên bản đồ`,
+                icon: 'success',
+                timer: 4000
+            });
+
+            map.fitBounds([userLocation, nearest.getLatLng()]);
+        } else {
+            Swal.fire('Thông báo', 'Không tìm thấy người cần hỗ trợ nào trên bản đồ', 'info');
+        }
+    }
+
+    function filterMarkers(type) {
+        currentFilter = type;
+
+        ['all', 'need', 'helping', 'want'].forEach(t => {
+            const btn = document.getElementById(`filter-${t}`);
+            if (btn) {
+                if ((t === 'all' && type === 'all') || t === type) {
+                    btn.classList.add('ring-2', 'ring-white', 'scale-105');
+                } else {
+                    btn.classList.remove('ring-2', 'ring-white', 'scale-105');
+                }
+            }
+        });
+
+        markers.forEach(marker => {
+            if (type === 'all' || marker.options.type === type) {
+                marker.addTo(map);
+            } else {
+                marker.remove();
+            }
+        });
+    }
+
+    function chatWithMarker(markerId) {
+        if (!currentUser) {
+            Swal.fire('Yêu cầu đăng nhập', 'Vui lòng đăng nhập để chat', 'warning');
+            showAuthModal();
+            return;
+        }
+
+        const marker = markers.find(m => m.options.id === markerId);
+        if (!marker) return;
+
+        currentChatMarker = marker;
+        const sidebar = document.getElementById('chat-sidebar');
+        sidebar.classList.remove('closed');
+
+        const targetName = document.getElementById('chat-target-name');
+        const typeText = marker.options.type === 'need' ? '🆘 Cần giúp' : (marker.options.type === 'helping' ? '✅ Đang giúp' : '🤝 Muốn giúp');
+        targetName.innerHTML = `${typeText}: ${marker.options.name}`;
+
+        loadChatHistory(markerId);
+    }
+
+    function loadChatHistory(markerId) {
+        const chats = JSON.parse(localStorage.getItem(CHAT_KEY) || '{}');
+        const chatHistory = chats[markerId] || [];
+        const container = document.getElementById('chat-messages');
+
+        if (chatHistory.length === 0) {
+            container.innerHTML = '<div class="text-center text-gray-400 text-sm">💬 Chưa có tin nhắn. Hãy gửi tin nhắn đầu tiên!</div>';
+            return;
+        }
+
+        container.innerHTML = chatHistory.map(msg => `
+                <div class="flex ${msg.userId === currentUser?.id ? 'justify-end' : 'justify-start'}">
+                    <div class="message-bubble px-3 py-2 rounded-lg ${msg.userId === currentUser?.id ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-800'}">
+                        <div class="text-xs ${msg.userId === currentUser?.id ? 'text-indigo-100' : 'text-gray-500'}">${msg.userName} - ${new Date(msg.timestamp).toLocaleTimeString()}</div>
+                        <div>${msg.text}</div>
+                    </div>
+                </div>
+            `).join('');
+
+        container.scrollTop = container.scrollHeight;
+    }
+
+    function sendMessage() {
+        if (!currentUser) {
+            Swal.fire('Yêu cầu đăng nhập', 'Vui lòng đăng nhập để gửi tin nhắn', 'warning');
+            showAuthModal();
+            return;
+        }
+
+        if (!currentChatMarker) {
+            Swal.fire('Lỗi', 'Chưa chọn người để chat', 'error');
+            return;
+        }
+
+        const input = document.getElementById('chat-input');
+        const message = input.value.trim();
+        if (!message) return;
+
+        const markerId = currentChatMarker.options.id;
+        const chats = JSON.parse(localStorage.getItem(CHAT_KEY) || '{}');
+        if (!chats[markerId]) chats[markerId] = [];
+
+        chats[markerId].push({
+            text: message,
+            timestamp: Date.now(),
+            userId: currentUser.id,
+            userName: currentUser.name
+        });
+
+        localStorage.setItem(CHAT_KEY, JSON.stringify(chats));
+        input.value = '';
+        loadChatHistory(markerId);
+
+        Swal.fire({
+            title: 'Đã gửi!',
+            text: 'Tin nhắn sẽ được lưu lại',
+            icon: 'success',
+            timer: 1500,
+            showConfirmButton: false
+        });
+    }
+
+    function closeChat() {
+        const sidebar = document.getElementById('chat-sidebar');
+        sidebar.classList.add('closed');
+        currentChatMarker = null;
+    }
+
+    function deleteMarker(markerId) {
+        Swal.fire({
+            title: 'Xác nhận xóa?',
+            text: 'Bạn có chắc muốn xóa điểm hỗ trợ này?',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Xóa',
+            cancelButtonText: 'Hủy'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                const markerIndex = markers.findIndex(m => m.options.id === markerId);
+                if (markerIndex !== -1) {
+                    map.removeLayer(markers[markerIndex]);
+                    markers.splice(markerIndex, 1);
+                    saveMarkersToStorage();
+                    Swal.fire('Đã xóa!', '', 'success');
+                }
+            }
+        });
+    }
+
+    function markAsHelped(markerId) {
+        Swal.fire({
+            title: '✅ Xác nhận đã giúp đỡ?',
+            text: 'Cảm ơn bạn đã hỗ trợ cộng đồng!',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Xác nhận',
+            cancelButtonText: 'Hủy'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                deleteMarker(markerId);
+                Swal.fire('Cảm ơn!', 'Bạn đã giúp đỡ một người khó khăn 🌟', 'success');
+            }
+        });
+    }
+
+    function openStats() {
+        const needCount = markers.filter(m => m.options.type === 'need').length;
+        const helpingCount = markers.filter(m => m.options.type === 'helping').length;
+        const wantCount = markers.filter(m => m.options.type === 'want').length;
+        const total = markers.length;
+
+        const statsHtml = `
+                <div class="space-y-2">
+                    <div class="flex justify-between p-2 bg-red-50 rounded"><span>🆘 Cần hỗ trợ:</span><span class="font-bold text-red-600">${needCount}</span></div>
+                    <div class="flex justify-between p-2 bg-green-50 rounded"><span>✅ Đang hỗ trợ:</span><span class="font-bold text-green-600">${helpingCount}</span></div>
+                    <div class="flex justify-between p-2 bg-blue-50 rounded"><span>🤝 Muốn hỗ trợ:</span><span class="font-bold text-blue-600">${wantCount}</span></div>
+                    <div class="flex justify-between p-2 bg-gray-100 rounded font-bold"><span>📊 Tổng cộng:</span><span>${total}</span></div>
+                </div>
+            `;
+
+        document.getElementById('stats-content').innerHTML = statsHtml;
+        document.getElementById('stats-modal').classList.remove('hidden');
+    }
+
+    function closeStats() {
+        document.getElementById('stats-modal').classList.add('hidden');
+    }
+
+    function toggleAbout() {
+        document.getElementById('about-modal').classList.toggle('hidden');
+    }
+
+    function generateSampleData() {
+        const samples = [
+            { lat: 10.772622, lng: 106.670172, type: 'need', desc: 'Cần gạo và mì tôm cho gia đình khó khăn', name: 'Người dân quận 1' },
+            { lat: 10.752622, lng: 106.650172, type: 'helping', desc: 'Có xe tải nhỏ chở hàng miễn phí', name: 'Nhóm thiện nguyện Xanh' },
+            { lat: 10.762622, lng: 106.690172, type: 'want', desc: 'Tôi có thể phát cháo miễn phí mỗi sáng', name: 'Bếp ăn từ thiện' },
+            { lat: 10.782622, lng: 106.660172, type: 'need', desc: 'Cần thuốc cảm và khẩu trang cho người già', name: 'Người dân quận Bình Thạnh' },
+            { lat: 10.742622, lng: 106.680172, type: 'helping', desc: 'Có thể sửa điện nước miễn phí', name: 'Thợ thiện nguyện' }
+        ];
+
+        samples.forEach((sample, idx) => {
+            addMarkerFromData({
+                ...sample,
+                timestamp: Date.now() - idx * 3600000,
+                id: Date.now() + idx,
+                userId: null  // Mẫu không thuộc user nào
+            });
+        });
+
+        saveMarkersToStorage();
+    }
+
+    // ========== KHỞI TẠO ==========
+    map.locate({setView: true, maxZoom: 15, enableHighAccuracy: true});
+
+    map.on('locationfound', function(e) {
+        userLocation = e.latlng;
+        const userMarker = L.marker(e.latlng, {
+            icon: L.divIcon({
+                html: '<div class="w-5 h-5 bg-blue-600 border-2 border-white rounded-full shadow-lg"></div>',
+                className: 'custom-marker',
+                iconSize: [20, 20]
+            })
+        }).addTo(map).bindPopup("📍 Vị trí của bạn").openPopup();
+
+        initAuth();
+    });
+
+    map.on('locationerror', function() {
+        Swal.fire('Lỗi định vị', 'Không thể lấy vị trí của bạn. Vui lòng kiểm tra quyền truy cập.', 'warning');
+        initAuth();
+    });
+
+    // Global functions
+    window.addCurrentLocation = addCurrentLocation;
+    window.findNearest = findNearest;
+    window.filterMarkers = filterMarkers;
+    window.chatWithMarker = chatWithMarker;
+    window.deleteMarker = deleteMarker;
+    window.markAsHelped = markAsHelped;
+    window.openStats = openStats;
+    window.closeStats = closeStats;
+    window.toggleAbout = toggleAbout;
+    window.closeChat = closeChat;
+    window.sendMessage = sendMessage;
+    window.showAuthModal = showAuthModal;
+    window.closeAuthModal = closeAuthModal;
+    window.switchAuthTab = switchAuthTab;
+    window.login = login;
+    window.register = register;
+    window.logout = logout;
+    window.showMyMarkers = showMyMarkers;
+
+    setTimeout(() => filterMarkers('all'), 500);
+</script>
+</body>
+</html>
